@@ -1,0 +1,257 @@
+% CSTR model
+% Continuously Stirred Tank Reactor with energy balance and reaction A->B.
+%   The temperature of the cooling jacket is the manipulated variable.
+%Constants used in the system
+%DH: Heat of reaction (-DelH/(rho*Cp)] (Kdeg.m3/mol)
+%Ua: Overall heat transfer coefficient (W/Cdeg)
+%E = E/R: Activation Energy (Kdeg)
+%mc1, mc2 = mc: coolant flowrate (g/s)
+%Tci: Coolant inlet temperature (Kdeg)
+%Ko: Arrenius constant (1/s)
+%V: Volume of CSTR (m3)
+%Cp: heat capacity (J/(kg.Kdeg)]
+%rho: density (kg/m3)
+%rho_cp [J/(m3.Kdeg)]'
+%Cpc: coolent heat capacity [J/(G.Kdeg)]
+%cfi: feed concentration (mol/m3)
+%Tfi: feed temperature (K)
+%Fin: feed flowrate (m3/s)
+%X(1) = T1; X(2) = C1; 
+clear;
+global KO E V;
+global Fin Cfi kt1 kt2 Ua mc1s mc2s Cpc Tci DH rhocp Tfs Tf2s;
+global t1sp tt1 tt2 dt stepT dt2 t2sp dTf dTf2;
+global mc1max mc1min stepT2 stepT stepT2;
+global mc2min mc2max;
+DH = -5; Ua = 0.35; E = 6000; mc1s = 0.4274; Fin = 0.29; mc2s = 0.2008; 
+mc1min = 0.01;
+mc1max = 1.1; 
+mc2min = 0.01;
+mc2max = 1.1; 
+%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+kt1 =-0.9; kt2 =.009;
+Tci = 250; KO = 2.7*10^8; V = 2.5; rhocp=1;
+Cpc = 1; Cfi = 20; Tfs = 300; Tf2s = 340;
+tt1 = 0.5; tt2 = -3;
+t1sp = 335; dt = 5; dt2 = 5; t2sp = 350;
+stepT = 5; stepT2 = 5;
+dTf = 0; dTf2 = 0;
+t0 = 0; tf = 20;
+dt1 = 0.5; span = t0 :dt1 :tf;
+%dt12 = 0.5; span = t0 :dt2 :tf;
+x0 = [t1sp, 0.45, 0, t2sp, 0.03, 0];
+%x0 = [300, t1sp, 1, 340, t2sp, 1];
+%tSpan=[0,100];
+% x0=[C_ss,T_ss,0];
+options = odeset('RelTol',1E-6,'AbsTol',1E-6);
+%[t,x] = ode45(@GMC2,tSpan,x0,options);
+[t,X]=ode45(@CSTR2,span,x0,options);
+%T1 = X(:,1); C1 = X(:,2); Iet1 = X(:,3);
+T1 = X(:,1); C1 = X(:,2); Iet1 = X(:,3); T2 = X(:,4); C2 = X(:,5); Iet2 = X(:,6);
+% X(1) = T1; X(2) = C1; X(3) = Iet1;
+% Prepare to plot Create zero matrices first
+% Number of points or steps Why Max?
+% st = max(size(t));
+st = max(size(t)); Tf = zeros(1,st); t1d = zeros(1,st);
+et1 = zeros(1,st); mv1 = zeros(1,st); mc1 = zeros(1,st);
+Tc1 = zeros(1,st); cool1 = zeros(1,st);Tf2 = zeros(1,st); t2d = zeros(1,st); et2 = zeros(1,st);
+mv2 = zeros(1,st); mc2 = zeros(1,st); Tc2 = zeros(1,st); cool2 = zeros(1,st);
+% %CONTROLLER GAIN GMC
+% zetaT=-1; tauT=-1; k1 = (2*zetaT)/tauT; k2 = 1/(tauT^2); zetT2=-1; 
+% tauT2=-1; k3= (2*zetT2)/tauT2; k4 = 1/(tauT2^2);
+%cool1 = Ua*(X(1) - (Ua*X(1) + mc1s*Cpc*Tci)/(mc1s*Cpc+Ua));
+% % disp('cool1');
+% % disp(cool1);
+%Rate = -KO*exp(-E/X(1))*X(2)*V;
+
+for i = 1 :st
+if t(i) <= dt
+    Tf(i) = Tfs;
+    t1d(i) = t1sp;
+else
+    Tf(i) = Tfs + dTf;
+    t1d(i) = t1sp + stepT;
+end
+et1(i) = t1d(i) - T1(i);
+mv1(i) = mc1s + kt1*(et1(i) + Iet1(i)/tt1);
+if mv1(i) <= mc1min
+    mc1(i) = mc1min;
+elseif mv1(i) >= mc1max
+    mc1(i) = mc1max;
+else 
+    mc1(i) = mv1(i);
+end
+Tc1(i) = ((Ua*T1(i) + mc1(i)*Cpc*Tci))/(mc1(i)*Cpc+Ua);
+cool1(i) = mc1(i)*Cpc*(Tc1(i) - Tci);
+end
+for i = 1 :st
+if t(i) <= dt2
+    Tf2(i) = Tf2s;
+    t2d(i) = t2sp; 
+else
+    Tf2(i) = Tf2s + dTf2;
+    t2d(i) = t2sp + stepT2;
+end
+et2(i) = t2d(i) - T2(i);
+mv2(i) = mc2s + kt2*(et2(i) + Iet2(i)/tt2);
+if mv2(i) <= mc2min
+    mc2(i) = mc2min;
+elseif mv2(i) >= mc2max
+    mc2(i) = mc2max;
+else 
+    mc2(i) = mv2(i);
+end
+Tc2(i) = ((Ua*T2(i) + mc2(i)*Cpc*Tci))/(mc2(i)*Cpc+Ua);
+cool2(i) = mc2(i)*Cpc*(Tc2(i) - Tci);
+end
+
+
+
+mv1 = (mc1s + kt1*(et1 + (Iet1/tt1)));
+mv2 = (mc2s + kt2*(et2 + (Iet2/tt2)));
+
+figure(1)
+subplot(2,2,1), plot(t,T1,'LineWidth', 3);
+xlabel('Time'); ylabel('Temperature 1'); grid;
+subplot(2,2,2), plot(t,T2,'LineWidth',3)
+xlabel('Time'); ylabel('Temperature 2'); grid on
+subplot(2,2,3), plot(t,Tc1','LineWidth', 3);
+xlabel('Time'); ylabel('Temperature Tc1'); grid
+subplot(2,2,4), plot(t,Tc2','LineWidth', 3);
+xlabel('Time'); ylabel('Temperature Tc2'); grid
+
+figure(2)
+subplot(2,2,1), plot(t,C1,'LineWidth', 3);
+xlabel('Time'); ylabel('CONCENTRATION 1'); grid;
+subplot(2,2,2), plot(t,C2,'LineWidth',3)
+xlabel('Time'); ylabel('CONCENTRATION 2'); grid on
+subplot(2,2,3), plot(t,mc1','LineWidth', 3);
+xlabel('Time'); ylabel('mc1'); grid on
+subplot(2,2,4), plot(t,mc2','LineWidth', 3);
+xlabel('Time'); ylabel('mc2'); grid on
+
+figure(3)
+subplot(2,1,1), plot(t,cool1','LineWidth', 3);
+xlabel('Time'); ylabel('cool1'); grid on
+subplot(2,1,2), plot(t,cool2','LineWidth', 3);
+xlabel('Time'); ylabel('cool2'); grid on
+
+% figure (3)
+% subplot(2,1,1), plot(t,mc1,'LineWidth',1.5);
+% % xlabel('Time'); ylabel('coolant flowrate'); grid on 
+% subplot(2,1,1), plot(t,cool1','LineWidth',2);
+% xlabel('Time'); ylabel('Cooling C'); grid on;
+
+%N = (k1*et1) + (k2*et1);
+cool1 = Ua*(X(1) - (Ua*X(1) + mc1*Cpc*Tci)/(mc1*Cpc+Ua));
+Tc1 = ((Ua*T1 + mc1*Cpc*Tci))/(mc1*Cpc+Ua);
+Rate = -KO*exp(-E/X(1))*X(2)*V;
+%M = V*Cpc/Ua*((DH/V))*Rate + Fin/V *(Tf-X(1)-N);
+%mc = (Ua*M)/(Cpc*(X(1)-M-Tci));
+Rate2 = -KO*exp(-E/X(4))*X(5)*V;
+cool2 = Ua*(X(4) - (Ua*X(4) + mc2*Cpc*Tci)/(mc2*Cpc+Ua));
+Tc2 = ((Ua*T2 + mc2*Cpc*Tci))/(mc2*Cpc+Ua);
+all = [T1(end), C1(end), Tc1(end), cool1(end)];
+disp('T1(C)          C1()   Tc1(C)     cool1()')
+disp(all);
+all2 = [T2(end), C2(end), Tc2(end), cool2(end)];
+disp('T2(C)          C2()   Tc2(C)     cool2()')
+disp(all2);
+%disp(M(end));
+
+%disp('Tc1')
+%disp(Tc1(end));
+%disp('N')
+%disp(N(end))
+%disp(mc(end))
+%disp('M')
+%disp(M(end));
+%disp('Tc2')
+%disp(Tc2)
+%disp('N2')
+%disp(N2(end))
+% Pt1 = t; PT1 = T1; PC1 = C1; PTc1 = Tc1; Pmc1 = mc1; Pcool1 = cool1; 
+% save GMC Pt1 PT1 PC1 PTc1 PTc1 Pmc1 Pcool1
+% Pt1 = t; PT1 = T1; PC1 = C1; PTc1 = Tc1; Pmc1 = mc1; Pcool2 = cool2; 
+% save GMC Pt1 PT1 PC1 PTc1 PTc1 Pmc1 Pcool2
+%all = [Fin(end), mc1(end), T1(end), C1(end), Tc1(end), cool1(end), V(end), C(end)];
+%disp('Fin(end)    mc1(end)    T1(K)      C1      Tc(K)       cool   Volume  Valve Coefficient')
+%all = [Fin(end), mc1(end), T1(end), C1(end), Tc1(end), cool1(end), V(end), C(end)];
+%disp('Fin(end)    mc1(end)    T1(K)      C1      Tc(K)       cool   Volume  Valve Coefficient')
+%disp(all)
+%disp(all)
+
+cool2 = Ua*(X(4) - (Ua*X(4) + mc2*Cpc*Tci)/(mc2*Cpc+Ua));
+
+% figure(3)
+% subplot(3,1,1), plot(t,C2,'LineWidth', 1.5);
+% xlabel('Time'); ylabel('C2'); grid;
+% subplot(3,1,2), plot(t,T2,'LineWidth',1.5)
+% xlabel('Time'); ylabel('T2'); grid on
+% subplot(3,1,3), plot(t,Tc2','LineWidth', 1.5);
+% xlabel('Time'); ylabel(' Tc2'); grid 
+% figure (4)
+% subplot(2,1,1), plot(t,mc2,'LineWidth',1.5);
+% xlabel('Time'); ylabel('MC2'); grid on 
+
+function xdot = CSTR2(t,X)
+global KO E V;
+global Fin Cfi Ua mc2min mc2max Cpc Tci DH rhocp Tfs Tf2s Tf p;
+global t1sp kt1 kt2 dt stepT dTf Rate;
+global pCp DH Tin tt1 tt2 mc1 mc2 profit profit2 cool cool2;
+global mc1max mc1min mc1s mc2s;
+global  t2 dt2 Tf2 stepT2 dTf2 t2sp k3 k4 k1 k2
+if t <= dt
+    Tf = Tfs;
+    t1d = t1sp;
+else
+    Tf = Tfs + dTf;
+    t1d = t1sp + stepT;
+end
+et1 = t1d - X(1);
+mv1 = mc1s + kt1*(et1 + X(3)/tt1);
+if mv1 <= mc1min
+    mc1 = mc1min;
+elseif mv1 >= mc1max
+    
+    mc1 = mc1max;
+else 
+    mc1 = mv1;
+end
+
+if t <= dt2
+    Tf2 = Tf2s;
+    t2d = t2sp;
+else
+    Tf2 = Tf2s + dTf2;
+    t2d = t2sp + stepT2;
+end
+et2 = t2d - X(4);
+mv2 = mc2s + kt2*(et2 + X(6)/tt2);
+if mv2 <= mc2min
+    mc2 = mc2min;
+elseif mv2 >= mc2max
+    
+    mc2 = mc2max;
+else 
+    mc2 = mv2;
+end
+
+%X(1) = T1; X(2) = C1=; X(3) = iet1;
+% xdot(1) = (Rate/V)+(Fin*(Cfi-X(2))/V);
+% xdot(2) = DH/V*Rate+Fin/V*(Tf - X(1))-Cool/V*Cpc; 
+% xdot(3) = et1;
+xdot(1) =((DH/rhocp)*(-KO*exp(-E/X(1))*V*X(2)) + Fin*(Tf - X(1)) - Ua*(...
+     X(1) - (Ua*X(1) + mc1*Cpc*Tci)/(mc1*Cpc + Ua)))/V; %VdT1/DT = 0
+xdot(2) = (-KO*exp(-E/X(1))*V*X(2) + Fin*(Cfi - X(2)))/V; %VDc1/dt = 0
+xdot(3) =et1;
+xdot(4) =((DH/rhocp)*(-KO*exp(-E/X(4))*V*X(5)) + Fin*(X(1) - X(4)) - Ua*(...
+     X(4) - (Ua*X(4) + mc2*Cpc*Tci)/(mc2*Cpc + Ua)))/V; %VdT1/DT = 0
+xdot(5) = (-KO*exp(-E/X(4))*V*X(5) + Fin*(X(2) - X(5)))/V; %VDc1/dt = 0
+xdot(6) =et2;
+xdot = [xdot(1); xdot(2); xdot(3); xdot(4); xdot(5); xdot(6);];
+disp(xdot);
+
+end
